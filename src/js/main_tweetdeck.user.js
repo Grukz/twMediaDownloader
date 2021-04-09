@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name            Twitter Media Downloader for TweetDeck
 // @description     Download media files on TweetDeck.
-// @version         0.1.4.3
+// @version         0.1.4.8
 // @namespace       https://memo.furyutei.work/
 // @author          furyu
 // @include         https://tweetdeck.twitter.com/*
@@ -15,9 +15,9 @@
 // @require         https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/jszip/3.1.4/jszip.min.js
 // @require         https://cdnjs.cloudflare.com/ajax/libs/decimal.js/7.3.0/decimal.min.js
-// @require         http://furyutei.github.io/twMediaDownloader/src/js/twitter-oauth/sha1.js
-// @require         http://furyutei.github.io/twMediaDownloader/src/js/twitter-oauth/oauth.js
-// @require         http://furyutei.github.io/twMediaDownloader/src/js/twitter-oauth/twitter-api.js
+// @require         https://furyutei.github.io/twMediaDownloader/src/js/twitter-oauth/sha1.js
+// @require         https://furyutei.github.io/twMediaDownloader/src/js/twitter-oauth/oauth.js
+// @require         https://furyutei.github.io/twMediaDownloader/src/js/twitter-oauth/twitter-api.js
 // ==/UserScript==
 
 /*
@@ -129,12 +129,19 @@ var SCRIPT_NAME = 'twMediaDownloader',
     IS_CHROME_EXTENSION = !! ( w.is_chrome_extension ),
     DEBUG = false;
 
-if ( ( typeof jQuery != 'function' ) || ( ( typeof JSZip != 'function' ) && ( typeof ZipRequest != 'function' ) ) || ( typeof Decimal != 'function' ) ) {
-    if ( w === w.top ) {
-        console.error( SCRIPT_NAME + '(' + location.href + '):', 'Library not found - ', 'jQuery:', typeof jQuery, 'JSZip:', typeof JSZip, 'ZipRequest:', typeof ZipRequest, 'Decimal:', typeof Decimal );
+[ 'jQuery', 'JSZip', 'Decimal' ].map( ( library_name ) => {
+    if ( typeof window[ library_name ] ) {
+        return;
     }
-    return;
-}
+    
+    const
+        message = SCRIPT_NAME + '(' + location.href + '): Library not found - ' +  library_name;
+    
+    if ( w === w.top ) {
+        console.error( message );
+    }
+    throw new Error( message );
+} );
 
 if ( ! IS_CHROME_EXTENSION ) {
     Object.assign( w, {
@@ -594,7 +601,8 @@ function update_display_mode() {
 
 
 var fetch_api_json = ( () => {
-    var api_authorization_bearer = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
+    var api_authorization_bearer = 'AAAAAAAAAAAAAAAAAAAAAF7aAAAAAAAASCiRjWvh7R5wxaKkFp7MM%2BhYBqM%3DbQ0JPmjU9F6ZoMhDfI4uTNAaQuTDm2uO9x3WFVr2xBZ2nhjdP0',
+        api2_authorization_bearer = 'AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs%3D1Zv7ttfk8LF81IUq16cHjhLTvJu4FA33AGWWjCpTnA',
         
         get_api_csrf_token = () => {
             var csrf_token;
@@ -608,9 +616,9 @@ var fetch_api_json = ( () => {
             return csrf_token;
         }, // end of get_api_csrf_token()
         
-        create_api_header = () => {
+        create_api_header = ( api_url ) => {
             return {
-                'authorization' : 'Bearer ' + api_authorization_bearer,
+                'authorization' : 'Bearer ' + ( ( ( api_url || '' ).indexOf( '/2/' ) < 0 ) ? api_authorization_bearer : api2_authorization_bearer ),
                 'x-csrf-token' : get_api_csrf_token(),
                 'x-twitter-active-user' : 'yes',
                 'x-twitter-auth-type' : 'OAuth2Session',
@@ -659,7 +667,7 @@ var fetch_api_json = ( () => {
         fetch_api_json = ( api_url ) => {
             return fetch_json( api_url, {
                 method : 'GET',
-                headers : create_api_header(),
+                headers : create_api_header( api_url ),
                 mode: 'cors',
                 credentials: 'include',
             } );
@@ -1441,15 +1449,28 @@ function insert_media_buttons() {
 
 
 function start_mutation_observer() {
-    new MutationObserver( function ( records ) {
-        log_debug( '*** MutationObserver ***', records );
-        
-        update_display_mode();
-        
-        if ( OPTIONS.IMAGE_DOWNLOAD_LINK || OPTIONS.VIDEO_DOWNLOAD_LINK ) {
-            check_media_tweets( d.body );
-        }
-    } ).observe( d.body, { childList : true, subtree : true } );
+    const
+        observer = new MutationObserver( ( records ) => {
+            try {
+                stop_observe();
+                
+                update_display_mode();
+                
+                if ( OPTIONS.IMAGE_DOWNLOAD_LINK || OPTIONS.VIDEO_DOWNLOAD_LINK ) {
+                    check_media_tweets( d.body );
+                }
+            }
+            catch ( error ) {
+                log_error( 'Error in MutaionObserver:', error );
+            }
+            finally {
+                start_observe();
+            }
+        } ),
+        start_observe = () => observer.observe( d.body, { childList : true, subtree : true } ),
+        stop_observe = () => observer.disconnect();
+    
+    start_observe();
 } // end of start_mutation_observer()
 
 
